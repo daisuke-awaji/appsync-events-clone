@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "./packages/core" }, { "path": "./packages/ws-handlers" }]
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/ws-handlers" },
+    { "path": "./packages/fanout-worker" },
+    { "path": "./packages/http-api" }
+  ]
 }

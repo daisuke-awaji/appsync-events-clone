@@ -1,0 +1,27 @@
+{
+  "name": "@appsync-events-clone/http-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@appsync-events-clone/core": "workspace:*",
+    "@aws-sdk/client-lambda": "^3.677.0",
+    "@aws-sdk/client-sqs": "^3.677.0",
+    "@hono/node-server": "^1.13.2",
+    "@hono/zod-validator": "^0.4.1",
+    "hono": "^4.6.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "aws-sdk-client-mock": "^4.1.0",
+    "tsx": "^4.19.1"
+  }
+}
