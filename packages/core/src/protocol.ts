@@ -69,3 +69,12 @@ export const httpPublishSchema = z.object({
   events: z.array(eventStringSchema).min(1).max(PUBLISH_MAX_EVENTS),
 });
 export type HttpPublishRequest = z.infer<typeof httpPublishSchema>;
+
+export const fanoutMessageSchema = z.object({
+  channel: z.string(),
+  namespace: z.string(),
+  events: z.array(z.string()),
+  publishedAt: z.number().optional(),
+  publisherConnectionId: z.string().optional(),
+});
+export type FanoutMessage = z.infer<typeof fanoutMessageSchema>;

@@ -1,32 +1,57 @@
+import { type FanoutMessage, fanoutMessageSchema, logger } from "@appsync-events-clone/core";
 import { GoneException, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
-import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { SQSBatchResponse, SQSEvent, SQSRecord } from "aws-lambda";
 import pLimit from "p-limit";
-import { z } from "zod";
 
 import { apigw, ddb } from "./clients.js";
 import { getEnv } from "./env.js";
 import { findMatchingSubscribers, parseConcrete } from "./matcher.js";
 
-const fanoutMessageSchema = z.object({
-  channel: z.string(),
-  namespace: z.string(),
-  events: z.array(z.string()),
-  publishedAt: z.number().optional(),
-  publisherConnectionId: z.string().optional(),
-});
-
-type FanoutMessage = z.infer<typeof fanoutMessageSchema>;
-
 const encoder = new TextEncoder();
+
+/**
+ * On GoneException: delete the connection row and all its subscriptions so
+ * future fanout cycles skip this connection entirely.
+ */
+async function cleanupGoneConnection(connectionId: string): Promise<void> {
+  const env = getEnv();
+
+  await ddb.send(
+    new DeleteCommand({
+      TableName: env.CONNECTIONS_TABLE,
+      Key: { connectionId },
+    }),
+  );
+
+  let lastKey: Record<string, unknown> | undefined;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: env.SUBSCRIPTIONS_TABLE,
+        IndexName: "byConnection",
+        KeyConditionExpression: "connectionId = :c",
+        ExpressionAttributeValues: { ":c": connectionId },
+        ExclusiveStartKey: lastKey,
+      }),
+    );
+    for (const item of res.Items ?? []) {
+      await ddb.send(
+        new DeleteCommand({
+          TableName: env.SUBSCRIPTIONS_TABLE,
+          Key: { channelPrefix: item.channelPrefix as string, sk: item.sk as string },
+        }),
+      );
+    }
+    lastKey = res.LastEvaluatedKey;
+  } while (lastKey);
+}
 
 async function deliverOne(
   connectionId: string,
   subscriptionId: string,
   msg: FanoutMessage,
 ): Promise<void> {
-  // Send each event individually as a `data` frame, mirroring the AppSync
-  // Events realtime protocol.
   for (const ev of msg.events) {
     try {
       await apigw.send(
@@ -45,13 +70,8 @@ async function deliverOne(
     } catch (err) {
       const name = (err as { name?: string }).name;
       if (err instanceof GoneException || name === "GoneException") {
-        await ddb.send(
-          new DeleteCommand({
-            TableName: getEnv().CONNECTIONS_TABLE,
-            Key: { connectionId },
-          }),
-        );
-        return; // stop sending further events to a closed connection
+        await cleanupGoneConnection(connectionId);
+        return;
       }
       throw err;
     }
@@ -73,10 +93,8 @@ async function processRecord(record: SQSRecord): Promise<void> {
 }
 
 /**
- * SQS-driven fanout worker.
- *
- * Reports per-record failures via SQS partial batch response so that successful
- * records are not redelivered.
+ * SQS-driven fanout worker. Reports per-record failures via partial batch
+ * response so that successful records are not redelivered.
  */
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const failures: { itemIdentifier: string }[] = [];
@@ -86,14 +104,10 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       try {
         await processRecord(record);
       } catch (err) {
-        console.error(
-          JSON.stringify({
-            level: "error",
-            msg: "fanout record failed",
-            messageId: record.messageId,
-            error: (err as Error).message,
-          }),
-        );
+        logger.error("fanout record failed", {
+          messageId: record.messageId,
+          error: (err as Error).message,
+        });
         failures.push({ itemIdentifier: record.messageId });
       }
     }),

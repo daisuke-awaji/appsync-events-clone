@@ -7,13 +7,16 @@ import { FanoutStack } from "../lib/fanout-stack.js";
 import { HttpStack } from "../lib/http-stack.js";
 import { WsStack } from "../lib/ws-stack.js";
 
+const TEST_SECRET_ARN =
+  "arn:aws:secretsmanager:us-east-1:123456789012:secret:test-api-key-AbCdEf";
+
 function buildApp() {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
   const data = new DataStack(app, "Data", { env });
   const ws = new WsStack(app, "Ws", {
     env,
-    apiKey: "test",
+    apiKeySecretArn: TEST_SECRET_ARN,
     connectionsTable: data.connectionsTable,
     subscriptionsTable: data.subscriptionsTable,
     fanoutQueue: data.fanoutQueue,
@@ -29,7 +32,7 @@ function buildApp() {
   });
   const http = new HttpStack(app, "Http", {
     env,
-    apiKey: "test",
+    apiKeySecretArn: TEST_SECRET_ARN,
     fanoutQueue: data.fanoutQueue,
   });
   return { app, data, ws, fanout, http };
@@ -63,6 +66,20 @@ describe("CDK synth", () => {
     t.resourceCountIs("AWS::ApiGatewayV2::Route", 6);
   });
 
+  it("WS stack authorizer lambda has Secrets Manager read policy", () => {
+    const { ws } = buildApp();
+    const t = Template.fromStack(ws);
+    t.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(["secretsmanager:GetSecretValue"]),
+          }),
+        ]),
+      },
+    });
+  });
+
   it("Fanout stack subscribes the worker to SQS with partial batch failures", () => {
     const { fanout } = buildApp();
     const t = Template.fromStack(fanout);
@@ -82,6 +99,7 @@ describe("CDK synth", () => {
         Variables: Match.objectLike({
           AWS_LAMBDA_EXEC_WRAPPER: "/opt/bootstrap",
           AWS_LWA_READINESS_CHECK_PATH: "/health",
+          API_KEY_SECRET_ARN: TEST_SECRET_ARN,
         }),
       },
     });
