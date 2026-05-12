@@ -39,5 +39,5 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
+      - name: Test (includes CDK synth assertions)
         run: pnpm test

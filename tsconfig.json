@@ -1,4 +1,10 @@
 {
   "files": [],
-  "references": [{ "path": "./packages/core" }]
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/ws-handlers" },
+    { "path": "./packages/fanout-worker" },
+    { "path": "./packages/http-api" },
+    { "path": "./infra/cdk" }
+  ]
 }

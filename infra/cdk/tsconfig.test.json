@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "./dist-test",
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "types": ["node"]
+  },
+  "include": ["test/**/*", "vitest.config.ts"],
+  "references": [{ "path": "./tsconfig.build.json" }]
+}
