@@ -7,6 +7,7 @@ import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { type Construct } from "constructs";
 
@@ -23,7 +24,8 @@ function lwaLayerArn(region: string): string {
 
 export interface HttpStackProps extends StackProps {
   readonly fanoutQueue: sqs.IQueue;
-  readonly apiKey: string;
+  /** ARN of a Secrets Manager secret containing the API key. */
+  readonly apiKeySecretArn: string;
 }
 
 export class HttpStack extends Stack {
@@ -31,6 +33,12 @@ export class HttpStack extends Stack {
 
   constructor(scope: Construct, id: string, props: HttpStackProps) {
     super(scope, id, props);
+
+    const apiKeySecret = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      "ApiKeySecret",
+      props.apiKeySecretArn,
+    );
 
     const lwa = lambda.LayerVersion.fromLayerVersionArn(this, "LwaLayer", lwaLayerArn(this.region));
 
@@ -47,7 +55,7 @@ export class HttpStack extends Stack {
         PORT: "8080",
         AWS_LWA_READINESS_CHECK_PATH: "/health",
         FANOUT_QUEUE_URL: props.fanoutQueue.queueUrl,
-        API_KEY: props.apiKey,
+        API_KEY_SECRET_ARN: props.apiKeySecretArn,
       },
       logRetention: logs.RetentionDays.ONE_WEEK,
       bundling: {
@@ -61,7 +69,6 @@ export class HttpStack extends Stack {
           beforeBundling: () => [],
           beforeInstall: () => [],
           afterBundling: (_inputDir: string, outputDir: string): string[] => [
-            // LWA expects the server to be started via run.sh with PATH-like wrapping.
             `printf '#!/bin/sh\\nexec /var/lang/bin/node /var/task/index.mjs\\n' > ${outputDir}/run.sh`,
             `chmod +x ${outputDir}/run.sh`,
           ],
@@ -69,6 +76,7 @@ export class HttpStack extends Stack {
       },
     });
 
+    apiKeySecret.grantRead(fn);
     props.fanoutQueue.grantSendMessages(fn);
 
     this.httpApi = new apigwv2.HttpApi(this, "EventsHttpApi");

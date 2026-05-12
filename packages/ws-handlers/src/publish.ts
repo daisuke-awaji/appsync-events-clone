@@ -1,9 +1,10 @@
 import {
   ChannelValidationError,
+  type FanoutMessage,
+  invokeHook,
   parsePublishChannel,
   publishMessageSchema,
 } from "@appsync-events-clone/core";
-import { InvokeCommand } from "@aws-sdk/client-lambda";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
   APIGatewayProxyResultV2,
@@ -21,42 +22,6 @@ type PubEvent = APIGatewayProxyWebsocketEventV2WithRequestContext<
     readonly authorizer?: { readonly lambda?: { readonly userId?: string } };
   }
 >;
-
-interface OnPublishResult {
-  readonly allow: boolean;
-  readonly reason?: string;
-  readonly events?: string[];
-}
-
-const decoder = new TextDecoder();
-
-async function invokeOnPublish(
-  fnName: string,
-  payload: { channel: string; namespace: string; userId: string; events: string[] },
-): Promise<OnPublishResult> {
-  const res = await lambda.send(
-    new InvokeCommand({
-      FunctionName: fnName,
-      InvocationType: "RequestResponse",
-      Payload: new TextEncoder().encode(JSON.stringify(payload)),
-    }),
-  );
-  if (res.FunctionError) {
-    return { allow: false, reason: `handler error: ${res.FunctionError}` };
-  }
-  if (!res.Payload) {
-    return { allow: true };
-  }
-  return JSON.parse(decoder.decode(res.Payload)) as OnPublishResult;
-}
-
-export interface FanoutMessage {
-  readonly channel: string;
-  readonly namespace: string;
-  readonly events: string[];
-  readonly publishedAt: number;
-  readonly publisherConnectionId?: string;
-}
 
 export const handler = async (event: PubEvent): Promise<APIGatewayProxyResultV2> => {
   const env = getEnv();
@@ -94,7 +59,7 @@ export const handler = async (event: PubEvent): Promise<APIGatewayProxyResultV2>
 
   if (env.ON_PUBLISH_FN) {
     const userId = event.requestContext.authorizer?.lambda?.userId ?? "anonymous";
-    const result = await invokeOnPublish(env.ON_PUBLISH_FN, {
+    const result = await invokeHook(lambda, env.ON_PUBLISH_FN, {
       channel: channel.raw,
       namespace: channel.namespace,
       userId,

@@ -1,4 +1,5 @@
 import { App, CfnOutput, Stack } from "aws-cdk-lib";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
 import { DataStack } from "../lib/data-stack.js";
 import { FanoutStack } from "../lib/fanout-stack.js";
@@ -7,10 +8,6 @@ import { WsStack } from "../lib/ws-stack.js";
 
 const app = new App();
 
-// MVP: read API key from CDK context (cdk deploy -c apiKey=xxx).
-// Replace with AWS Secrets Manager for production.
-const apiKey = (app.node.tryGetContext("apiKey") as string | undefined) ?? "dev-api-key";
-
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
   region: process.env.CDK_DEFAULT_REGION ?? "us-east-1",
@@ -18,9 +15,26 @@ const env = {
 
 const data = new DataStack(app, "AppSyncEventsClone-Data", { env });
 
+// API key stored in Secrets Manager. On first deploy, a random key is generated.
+// Override via CDK context: cdk deploy -c apiKeySecretArn=arn:aws:secretsmanager:...
+const existingSecretArn = app.node.tryGetContext("apiKeySecretArn") as string | undefined;
+
+let apiKeySecretArn: string;
+if (existingSecretArn) {
+  apiKeySecretArn = existingSecretArn;
+} else {
+  const secretStack = new Stack(app, "AppSyncEventsClone-Secret", { env });
+  const secret = new secretsmanager.Secret(secretStack, "ApiKeySecret", {
+    description: "API key for AppSync Events Clone",
+    generateSecretString: { excludePunctuation: true, passwordLength: 48 },
+  });
+  apiKeySecretArn = secret.secretArn;
+  secretStack.addDependency(data);
+}
+
 const ws = new WsStack(app, "AppSyncEventsClone-Ws", {
   env,
-  apiKey,
+  apiKeySecretArn,
   connectionsTable: data.connectionsTable,
   subscriptionsTable: data.subscriptionsTable,
   fanoutQueue: data.fanoutQueue,
@@ -40,7 +54,7 @@ fanout.addDependency(ws);
 
 const http = new HttpStack(app, "AppSyncEventsClone-Http", {
   env,
-  apiKey,
+  apiKeySecretArn,
   fanoutQueue: data.fanoutQueue,
 });
 http.addDependency(data);

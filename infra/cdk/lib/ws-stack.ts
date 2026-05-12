@@ -10,6 +10,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { type Construct } from "constructs";
 
@@ -20,8 +21,8 @@ export interface WsStackProps extends StackProps {
   readonly connectionsTable: ddb.ITable;
   readonly subscriptionsTable: ddb.ITable;
   readonly fanoutQueue: sqs.IQueue;
-  /** Static API key for MVP. Replace with Secrets Manager in production. */
-  readonly apiKey: string;
+  /** ARN of a Secrets Manager secret containing the API key. */
+  readonly apiKeySecretArn: string;
 }
 
 export class WsStack extends Stack {
@@ -31,6 +32,12 @@ export class WsStack extends Stack {
 
   constructor(scope: Construct, id: string, props: WsStackProps) {
     super(scope, id, props);
+
+    const apiKeySecret = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      "ApiKeySecret",
+      props.apiKeySecretArn,
+    );
 
     const commonEnv: Record<string, string> = {
       CONNECTIONS_TABLE: props.connectionsTable.tableName,
@@ -69,8 +76,9 @@ export class WsStack extends Stack {
     const defaultFn = fn("DefaultFn", "default.ts");
 
     const authzFn = fn("AuthorizerFn", "authorizer.ts", {
-      API_KEY: props.apiKey,
+      API_KEY_SECRET_ARN: props.apiKeySecretArn,
     });
+    apiKeySecret.grantRead(authzFn);
 
     // DDB grants
     props.connectionsTable.grantReadWriteData(connectFn);

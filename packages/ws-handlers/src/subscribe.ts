@@ -1,9 +1,9 @@
 import {
   ChannelValidationError,
+  invokeHook,
   parseSubscribePattern,
   subscribeMessageSchema,
 } from "@appsync-events-clone/core";
-import { InvokeCommand } from "@aws-sdk/client-lambda";
 import { PutCommand } from "@aws-sdk/lib-dynamodb";
 import type {
   APIGatewayProxyResultV2,
@@ -21,35 +21,6 @@ type SubEvent = APIGatewayProxyWebsocketEventV2WithRequestContext<
     readonly authorizer?: { readonly lambda?: { readonly userId?: string } };
   }
 >;
-
-interface OnSubscribeResult {
-  readonly allow: boolean;
-  readonly reason?: string;
-  readonly filter?: string;
-}
-
-const decoder = new TextDecoder();
-
-async function invokeOnSubscribe(
-  fnName: string,
-  payload: { channel: string; namespace: string; userId: string },
-): Promise<OnSubscribeResult> {
-  const res = await lambda.send(
-    new InvokeCommand({
-      FunctionName: fnName,
-      InvocationType: "RequestResponse",
-      Payload: new TextEncoder().encode(JSON.stringify(payload)),
-    }),
-  );
-  if (res.FunctionError) {
-    return { allow: false, reason: `handler error: ${res.FunctionError}` };
-  }
-  if (!res.Payload) {
-    return { allow: true };
-  }
-  const text = decoder.decode(res.Payload);
-  return JSON.parse(text) as OnSubscribeResult;
-}
 
 export const handler = async (event: SubEvent): Promise<APIGatewayProxyResultV2> => {
   const env = getEnv();
@@ -83,10 +54,9 @@ export const handler = async (event: SubEvent): Promise<APIGatewayProxyResultV2>
     throw err;
   }
 
-  // Run optional onSubscribe authorization hook.
   if (env.ON_SUBSCRIBE_FN) {
     const userId = event.requestContext.authorizer?.lambda?.userId ?? "anonymous";
-    const result = await invokeOnSubscribe(env.ON_SUBSCRIBE_FN, {
+    const result = await invokeHook(lambda, env.ON_SUBSCRIBE_FN, {
       channel: parsed.channel,
       namespace: pattern.namespace,
       userId,

@@ -1,11 +1,10 @@
-import { BatchWriteCommand, DeleteCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { batchWriteWithRetry } from "@appsync-events-clone/core";
+import { DeleteCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyResultV2, APIGatewayProxyWebsocketEventV2 } from "aws-lambda";
 
 import { ddb } from "./shared/clients.js";
 import { getEnv } from "./shared/env.js";
 import { logger } from "./shared/logger.js";
-
-const BATCH_SIZE = 25;
 
 async function deleteAllSubscriptions(connectionId: string): Promise<number> {
   const env = getEnv();
@@ -24,20 +23,17 @@ async function deleteAllSubscriptions(connectionId: string): Promise<number> {
     );
 
     const items = res.Items ?? [];
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const chunk = items.slice(i, i + BATCH_SIZE);
-      await ddb.send(
-        new BatchWriteCommand({
-          RequestItems: {
-            [env.SUBSCRIPTIONS_TABLE]: chunk.map((it) => ({
-              DeleteRequest: {
-                Key: { channelPrefix: it.channelPrefix as string, sk: it.sk as string },
-              },
-            })),
+    if (items.length > 0) {
+      await batchWriteWithRetry(
+        ddb,
+        env.SUBSCRIPTIONS_TABLE,
+        items.map((it) => ({
+          DeleteRequest: {
+            Key: { channelPrefix: it.channelPrefix as string, sk: it.sk as string },
           },
-        }),
+        })),
       );
-      total += chunk.length;
+      total += items.length;
     }
     lastEvaluatedKey = res.LastEvaluatedKey;
   } while (lastEvaluatedKey);

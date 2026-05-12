@@ -23,7 +23,7 @@ describe("disconnect handler", () => {
         { channelPrefix: "/default", sk: "test-conn-1#sub-2" },
       ],
     });
-    ddbMock.on(BatchWriteCommand).resolves({});
+    ddbMock.on(BatchWriteCommand).resolves({ UnprocessedItems: {} });
     ddbMock.on(DeleteCommand).resolves({});
 
     const evt = makeWsEventBasic({
@@ -40,6 +40,35 @@ describe("disconnect handler", () => {
       TableName: "TestConnections",
       Key: { connectionId: "test-conn-1" },
     });
+  });
+
+  it("retries UnprocessedItems from BatchWrite", async () => {
+    ddbMock.on(QueryCommand, { IndexName: "byConnection" }).resolves({
+      Items: [
+        { channelPrefix: "/default/room", sk: "test-conn-1#sub-1" },
+      ],
+    });
+    let call = 0;
+    ddbMock.on(BatchWriteCommand).callsFake(() => {
+      call++;
+      if (call === 1) {
+        return {
+          UnprocessedItems: {
+            TestSubscriptions: [
+              { DeleteRequest: { Key: { channelPrefix: "/default/room", sk: "test-conn-1#sub-1" } } },
+            ],
+          },
+        };
+      }
+      return { UnprocessedItems: {} };
+    });
+    ddbMock.on(DeleteCommand).resolves({});
+
+    const evt = makeWsEventBasic({ eventType: "DISCONNECT", routeKey: "$disconnect" });
+    const r = await handler(evt);
+
+    expect(r).toEqual({ statusCode: 200 });
+    expect(ddbMock.commandCalls(BatchWriteCommand).length).toBeGreaterThanOrEqual(2);
   });
 
   it("handles a connection with no subscriptions", async () => {

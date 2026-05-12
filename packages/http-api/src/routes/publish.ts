@@ -1,9 +1,9 @@
 import {
   ChannelValidationError,
   httpPublishSchema,
+  invokeHook,
   parsePublishChannel,
 } from "@appsync-events-clone/core";
-import { InvokeCommand } from "@aws-sdk/client-lambda";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { zValidator } from "@hono/zod-validator";
 import type { Context } from "hono";
@@ -11,32 +11,6 @@ import { Hono } from "hono";
 
 import { lambda, sqs } from "../clients.js";
 import { getEnv } from "../env.js";
-
-interface OnPublishResult {
-  readonly allow: boolean;
-  readonly reason?: string;
-  readonly events?: string[];
-}
-
-const decoder = new TextDecoder();
-
-async function invokeOnPublish(
-  fnName: string,
-  payload: { channel: string; namespace: string; userId: string; events: string[] },
-): Promise<OnPublishResult> {
-  const res = await lambda.send(
-    new InvokeCommand({
-      FunctionName: fnName,
-      InvocationType: "RequestResponse",
-      Payload: new TextEncoder().encode(JSON.stringify(payload)),
-    }),
-  );
-  if (res.FunctionError) {
-    return { allow: false, reason: `handler error: ${res.FunctionError}` };
-  }
-  if (!res.Payload) return { allow: true };
-  return JSON.parse(decoder.decode(res.Payload)) as OnPublishResult;
-}
 
 export const publishRoutes: Hono = new Hono();
 
@@ -68,7 +42,7 @@ publishRoutes.post(
     let outgoing = events;
     if (env.ON_PUBLISH_FN) {
       const userId = (c.get("userId") as string | undefined) ?? "anonymous";
-      const result = await invokeOnPublish(env.ON_PUBLISH_FN, {
+      const result = await invokeHook(lambda, env.ON_PUBLISH_FN, {
         channel: parsed.raw,
         namespace: parsed.namespace,
         userId,

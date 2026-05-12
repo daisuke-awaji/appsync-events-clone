@@ -87,19 +87,33 @@ describe("fanout handler", () => {
     expect(data.event).toBe('{"x":1}');
   });
 
-  it("deletes the connection on GoneException", async () => {
-    ddbMock.on(QueryCommand).resolves({
-      Items: [
-        {
-          channelPrefix: "/default/room",
-          sk: "c1#s1",
-          connectionId: "c1",
-          subscriptionId: "s1",
-          pattern: "/default/room/*",
-          namespace: "default",
-        },
-      ],
-    });
+  it("deletes the connection and its subscriptions on GoneException", async () => {
+    // matcher query returns subscriber
+    ddbMock
+      .on(QueryCommand, { TableName: "TestSubscriptions", KeyConditionExpression: "channelPrefix = :p" })
+      .resolves({
+        Items: [
+          {
+            channelPrefix: "/default/room",
+            sk: "c1#s1",
+            connectionId: "c1",
+            subscriptionId: "s1",
+            pattern: "/default/room/*",
+            namespace: "default",
+          },
+        ],
+      });
+
+    // cleanup query for byConnection GSI
+    ddbMock
+      .on(QueryCommand, { IndexName: "byConnection" })
+      .resolves({
+        Items: [
+          { channelPrefix: "/default/room", sk: "c1#s1", connectionId: "c1", subscriptionId: "s1" },
+          { channelPrefix: "/default/chat", sk: "c1#s2", connectionId: "c1", subscriptionId: "s2" },
+        ],
+      });
+
     apigwMock
       .on(PostToConnectionCommand)
       .rejects(new GoneException({ message: "gone", $metadata: {} }));
@@ -117,9 +131,15 @@ describe("fanout handler", () => {
 
     const r = await handler(event);
     expect(r.batchItemFailures).toEqual([]);
+
     const dels = ddbMock.commandCalls(DeleteCommand);
-    expect(dels).toHaveLength(1);
-    expect(dels[0]!.args[0].input.Key).toEqual({ connectionId: "c1" });
+    // 1 connection delete + 2 subscription deletes
+    expect(dels.length).toBeGreaterThanOrEqual(3);
+    const connectionDel = dels.find(
+      (d) => (d.args[0].input.Key as Record<string, unknown>).connectionId === "c1" &&
+        !("channelPrefix" in (d.args[0].input.Key as Record<string, unknown>)),
+    );
+    expect(connectionDel).toBeDefined();
   });
 
   it("returns batchItemFailures for malformed records", async () => {

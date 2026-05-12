@@ -15,25 +15,25 @@ function event(opts: {
 }
 
 describe("authorizer", () => {
-  it("authorizes when api-key query param matches", () => {
-    const r = handler(event({ qs: { "api-key": "test-api-key" } }));
+  it("authorizes when api-key query param matches", async () => {
+    const r = await handler(event({ qs: { "api-key": "test-api-key" } }));
     expect(r.isAuthorized).toBe(true);
     expect(r.context.userId).toBe("api-key-user");
     expect(r.context.authMode).toBe("apiKey");
   });
 
-  it("authorizes when x-api-key header matches", () => {
-    const r = handler(event({ headers: { "x-api-key": "test-api-key" } }));
+  it("authorizes when x-api-key header matches", async () => {
+    const r = await handler(event({ headers: { "x-api-key": "test-api-key" } }));
     expect(r.isAuthorized).toBe(true);
   });
 
-  it("denies when key is wrong", () => {
-    const r = handler(event({ qs: { "api-key": "wrong" } }));
+  it("denies when key is wrong", async () => {
+    const r = await handler(event({ qs: { "api-key": "wrong" } }));
     expect(r.isAuthorized).toBe(false);
   });
 
-  it("denies when key is missing", () => {
-    const r = handler(event({}));
+  it("denies when key is missing", async () => {
+    const r = await handler(event({}));
     expect(r.isAuthorized).toBe(false);
   });
 });
