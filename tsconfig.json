@@ -4,6 +4,7 @@
     { "path": "./packages/core" },
     { "path": "./packages/ws-handlers" },
     { "path": "./packages/fanout-worker" },
-    { "path": "./packages/http-api" }
+    { "path": "./packages/http-api" },
+    { "path": "./infra/cdk" }
   ]
 }

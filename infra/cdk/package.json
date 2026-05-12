@@ -1,0 +1,22 @@
+{
+  "name": "@appsync-events-clone/cdk",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --all",
+    "destroy": "cdk destroy --all",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@appsync-events-clone/core": "workspace:*",
+    "aws-cdk-lib": "^2.165.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.165.0",
+    "@types/node": "^20.14.10"
+  }
+}
